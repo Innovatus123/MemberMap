@@ -1,0 +1,43 @@
+{
+  "chapterName": "General Building Contractors Association",
+  "shortName": "GBCA",
+  "mapTitle": "GBCA Member Map",
+  "subtitle": "Interactive map & directory of GBCA member companies - internal use only",
+  "classification": "INTERNAL - Board of Directors / Staff. Do not distribute.",
+  "brand": {
+    "red": "#CE0E2D",
+    "nearBlack": "#2D2D2D",
+    "darkGray": "#4A4A4A",
+    "offWhite": "#F2F2F2",
+    "headingFont": "Georgia, 'Times New Roman', serif",
+    "bodyFont": "Calibri, Carlito, 'Segoe UI', Arial, sans-serif"
+  },
+  "footprintStates": ["42", "34", "10"],
+  "mapCenter": [40.0, -75.25],
+  "mapZoom": 9,
+  "categories": [
+    { "key": "Active",    "label": "Active - General Contractors",      "color": "#CE0E2D" },
+    { "key": "Associate", "label": "Associate - Specialty Contractors", "color": "#2D2D2D" },
+    { "key": "Affiliate", "label": "Affiliate - Suppliers & Services",  "color": "#D4A017" },
+    { "key": "Unknown",   "label": "Type not on file",                  "color": "#8A8A8A" }
+  ],
+  "regions": [
+    { "name": "Philadelphia",  "counties": ["42101"] },
+    { "name": "PA Suburbs",    "counties": ["42017", "42029", "42045", "42091"] },
+    { "name": "South Jersey",  "counties": ["34001", "34005", "34007", "34009", "34011", "34015", "34033"] },
+    { "name": "Delaware",      "states": ["10"] },
+    { "name": "Other PA",      "states": ["42"] },
+    { "name": "Other NJ",      "states": ["34"] },
+    { "name": "Outside PA/NJ/DE" }
+  ],
+  "publish": {
+    "showDuesTier": true,
+    "showPrimaryContact": true,
+    "showEmail": true
+  },
+  "growthzone": {
+    "includeStatusIds": [2],
+    "pageSize": 100,
+    "requestsPerSecond": 5
+  }
+}

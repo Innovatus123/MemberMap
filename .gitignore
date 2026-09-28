@@ -4,3 +4,6 @@ data/raw/
 data/cache/
 dist/
 reports/
+data/seed/
+data/members.json
+data/members.geo.json

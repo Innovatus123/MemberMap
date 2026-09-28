@@ -1,0 +1,34 @@
+{
+  "name": "gbca-member-map",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GBCA member map and directory, built from GrowthZone",
+  "type": "module",
+  "scripts": {
+    "sync": "node --env-file-if-exists=.env src/gz/sync.js",
+    "discover": "node --env-file-if-exists=.env src/gz/sync.js --discover",
+    "seed": "node src/seed.js",
+    "geocode": "node src/geocode.js",
+    "build": "node src/build.js",
+    "build:sharepoint": "node src/build.js --sharepoint",
+    "report": "node src/cleanup-report.js",
+    "all": "npm run sync && npm run geocode && npm run report && npm run build",
+    "draft": "npm run seed && npm run geocode && npm run report && npm run build && npm run build:sharepoint",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.9"
+  },
+  "dependencies": {
+    "d3-geo": "^3.1.1",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
+    "topojson-client": "^3.1.0",
+    "us-atlas": "^3.0.1",
+    "us-zips": "^2022.9.1",
+    "zipcodes": "^8.0.0"
+  },
+  "devDependencies": {
+    "terser": "^5.51.2"
+  }
+}

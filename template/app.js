@@ -48,12 +48,28 @@
 
   // ---------- map ----------
   var map = L.map('map', { zoomControl: true, preferCanvas: true }).setView(CFG.mapCenter, CFG.mapZoom);
-  // CARTO's basemaps now need an API key (every tile reads "API KEY REQUIRED"), so use OSM's
-  // standard tiles, which are fine at internal-staff volume under OSM's tile usage policy.
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(map);
+  // Basemap. The file is opened from disk, Box, SharePoint or email, so its tiles must load with
+  // no Referer and no API key. CARTO now needs a key and OSM blocks requests without a Referer,
+  // so use Esri's light-gray canvas, and switch to the public-domain USGS map if Esri refuses tiles.
+  var ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+  var basemap = L.layerGroup([
+    L.tileLayer(ESRI + 'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 16, attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors',
+    }),
+    L.tileLayer(ESRI + 'World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16 }),
+  ]).addTo(map);
+  var tilesOk = 0, tilesBad = 0;
+  basemap.eachLayer(function (l) {
+    l.on('tileload', function () { tilesOk++; });
+    l.on('tileerror', function () {
+      if (++tilesBad < 6 || tilesOk || !map.hasLayer(basemap)) return;
+      map.removeLayer(basemap);
+      L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 16, attribution: 'Tiles courtesy of the <a href="https://www.usgs.gov/">U.S. Geological Survey</a>',
+      }).addTo(map).bringToBack();
+    });
+  });
+  map.setMaxZoom(16);
 
   L.geoJSON(D.states, { interactive: false, style: { color: '#2D2D2D', weight: 1.6, fill: false, opacity: 0.7 } }).addTo(map);
 

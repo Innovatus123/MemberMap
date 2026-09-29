@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { nameKey, pickStreet, parseMembershipType, zip5, regionFor, tierRank } from '../src/lib/normalize.js';
 import { parseCsv, toCsv } from '../src/lib/io.js';
 import { seed } from '../src/seed.js';
-import { approximate, countyAt, censusBatch } from '../src/geocode.js';
+import { approximate, countyAt, censusBatch, geocodeMembers } from '../src/geocode.js';
 import { GrowthZoneClient } from '../src/gz/client.js';
-import { syncMembers, chooseAddress, pick } from '../src/gz/sync.js';
+import { syncMembers, chooseAddress, pick, typedAddresses, contactInfo } from '../src/gz/sync.js';
 import { build, publishable } from '../src/build.js';
 
 const REGIONS = [
@@ -93,8 +93,38 @@ test('censusBatch parses matches and returns null when the service is unreachabl
   const ok = await censusBatch([{ id: 'k1' }, { id: 'k2' }], { fetchImpl: async () => ({ ok: true, text: async () => body }) });
   assert.deepEqual(ok.get('k1'), { lat: 39.95, lng: -75.17, precision: 'street', matched: '100 MAIN ST, PHILADELPHIA, PA, 19103' });
   assert.equal(ok.has('k2'), false);
-  const down = await censusBatch([{ id: 'k1' }], { fetchImpl: async () => { throw new Error('offline'); } });
+  const down = await censusBatch([{ id: 'k1' }], { fetchImpl: async () => { throw new Error('offline'); }, retryDelayMs: 0 });
   assert.equal(down, null);
+});
+
+test('censusBatch retries a 200 response that has no result rows', async () => {
+  const good = '"k1","x",Match,Exact,"100 MAIN ST","-75.17,39.95",1,L,42,101,000100,1000\n';
+  let calls = 0;
+  const flaky = async () => ({ ok: true, text: async () => (++calls === 1 ? '' : good) });
+  const r = await censusBatch([{ id: 'k1' }], { fetchImpl: flaky, retryDelayMs: 0 });
+  assert.equal(calls, 2);
+  assert.equal(r.get('k1').precision, 'street');
+  const empty = await censusBatch([{ id: 'k1' }], { fetchImpl: async () => ({ ok: true, text: async () => '<html>busy</html>' }), retryDelayMs: 0 });
+  assert.equal(empty, null);
+});
+
+test('geocodeMembers uses street-level Census results for members that carry their own id', async () => {
+  const m = { id: 'gz-42', company: 'Test Builders', street: '36 S 18th St', city: 'Philadelphia', state: 'PA', zip: '19103' };
+  const fetchImpl = async (_url, init) => {
+    const csv = await init.body.get('addressFile').text();
+    const id = csv.split(',')[0].replace(/"/g, '');
+    return { ok: true, text: async () => `"${id}","x",Match,Exact,"36 S 18TH ST","-75.1707,39.9522",1,L,42,101,000100,1000\n` };
+  };
+  const { members } = await geocodeMembers([m], { cache: {}, fetchImpl });
+  assert.equal(members[0].precision, 'street');
+  assert.equal(members[0].id, 'gz-42');
+  assert.equal(members[0].region, 'Philadelphia');
+
+  // A street the Census cannot match falls back to the ZIP center and goes on the worklist.
+  const miss = async () => ({ ok: true, text: async () => '"x","y",No_Match\n' });
+  const r = await geocodeMembers([m], { cache: {}, fetchImpl: miss });
+  assert.equal(r.members[0].precision, 'zip');
+  assert.match(r.issues[0].issue, /Street address not matched/);
 });
 
 // ---- GrowthZone client/sync against a mock server ----
@@ -139,36 +169,80 @@ test('GrowthZone client refuses to run without a key', () => {
 });
 
 test('chooseAddress prefers physical over mailing and skips PO boxes', () => {
-  const a = chooseAddress([
-    { AddressType: 'Mailing', Line1: 'P.O. Box 5', City: 'Ambler' },
-    { AddressType: 'Physical', Line1: '10 Main St', City: 'Ambler' },
-  ]);
-  assert.equal(a.Line1, '10 Main St');
+  const infos = [
+    { Type: 3, EntryId: 1, AddressType: 2, TypeName: 'Mailing', IsPrimary: true },
+    { Type: 3, EntryId: 2, AddressType: 3, TypeName: 'Physical', IsPrimary: false },
+    { Type: 3, EntryId: 3, AddressType: 1, TypeName: 'Physical and Mailing', IsPrimary: false },
+  ];
+  const a = chooseAddress(typedAddresses([
+    { Id: 1, Address1: '10 Mail St', City: 'Ambler' },
+    { Id: 2, Address1: 'P.O. Box 5', City: 'Ambler' },
+    { Id: 3, Address1: '20 Main St', City: 'Ambler' },
+  ], infos));
+  assert.equal(a.Address1, '20 Main St');
+  // A mailing street address still beats a physical PO box.
+  assert.equal(chooseAddress(typedAddresses([{ Id: 1, Address1: '10 Mail St' }, { Id: 2, Address1: 'PO Box 5' }], infos)).Address1, '10 Mail St');
   assert.equal(pick({ postalcode: '19103' }, ['PostalCode']), '19103');
 });
 
+test('contactInfo picks the primary value and prefers the main phone line', () => {
+  const infos = [
+    { Type: 2, TypeName: 'Fax', Value: '215-555-0199', IsPrimary: false },
+    { Type: 2, TypeName: 'Main', Value: '215-555-0100', IsPrimary: true },
+    { Type: 1, TypeName: 'Work', Value: 'info@example.com', IsPrimary: true },
+    { Type: 4, TypeName: 'Homepage', Value: 'www.example.com', IsPrimary: true },
+  ];
+  assert.equal(contactInfo(infos, 2), '215-555-0100');
+  assert.equal(contactInfo(infos, 1), 'info@example.com');
+  assert.equal(contactInfo([], 2), '');
+});
+
 test('syncMembers maps GrowthZone responses to member records', async () => {
+  const log = [];
   const gz = new GrowthZoneClient({
     baseUrl: 'https://x.growthzoneapp.com/api', apiKey: 'k', requestsPerSecond: 1000,
     fetchImpl: mockFetch({
-      'GET /memberships/types': () => ({ body: { TotalRecordAvailable: 1, Results: [{ MembershipTypeId: 7, Name: 'GBCA Active Member - Over $100 Million' }] } }),
-      'POST /memberships/all': () => ({ body: { TotalRecordAvailable: 1, Results: [{ ContactId: 42, MembershipTypeId: 7, JoinDate: '1938-01-02T00:00:00' }] } }),
-      'GET /contacts/OrgGeneral/42': () => ({ body: { Name: 'Test Builders, Inc.', Phone: '215-555-0100', ContactType: 'Organization', PrimaryContactName: 'Pat Doe' } }),
-      'GET /contacts/ContactAddresses/42': () => ({ body: [{ AddressType: 'Physical', Line1: '36 S 18th St', City: 'Philadelphia', StateProvince: 'PA', PostalCode: '19103' }] }),
-      'GET /contacts/lookup/42/contactwebsites': () => ({ body: ['www.example.com'] }),
-    }),
+      'GET /memberships/types': () => ({ body: { TotalRecordAvailable: 2, Results: [
+        { MembershipTypeId: 7, Type: 'fa fa-building', Name: 'GBCA Active Member', OwnerContactTypeId: 2 },
+        { MembershipTypeId: 8, Type: 'fa fa-user', Name: 'General membership', OwnerContactTypeId: 1 },
+      ] } }),
+      // Pages with $skip/$top and returns every status; the sync filters to Active (2).
+      'POST /memberships/all': (u) => {
+        const rows = [
+          { ContactId: 42, Name: 'Test Builders, Inc.', MembershipTypeId: 7, Type: 'GBCA Active Member - Over $100 Million', MembershipStatusTypeId: 2, StartDate: '1938-01-02T00:00:00' },
+          { ContactId: 43, Name: 'Gone Co', MembershipTypeId: 7, Type: 'GBCA Active Member', MembershipStatusTypeId: 5 },
+          { ContactId: 44, Name: 'Pat Person', MembershipTypeId: 8, Type: 'General membership', MembershipStatusTypeId: 2 },
+        ];
+        const skip = Number(u.searchParams.get('$skip')), top = Number(u.searchParams.get('$top'));
+        return { body: { TotalRecordAvailable: rows.length, Results: rows.slice(skip, skip + top) } };
+      },
+      'GET /contacts/OrgGeneral/42': () => ({ body: {
+        ContactDisplayName: 'Test Builders, Inc.', SystemContactTypeId: 2,
+        ContactInfos: [
+          { Type: 2, TypeName: 'Main', Value: '215-555-0100', IsPrimary: true },
+          { Type: 4, TypeName: 'Homepage', Value: 'www.example.com', IsPrimary: true },
+          { Type: 3, EntryId: 900, AddressType: 1, TypeName: 'Physical and Mailing', IsPrimary: true },
+        ],
+        Contacts: [{ Name: 'Sam Staff', IsPrimary: false }, { Name: 'Pat Doe', Title: 'President', IsPrimary: true }],
+      } }),
+      'GET /contacts/ContactAddresses/42': () => ({ body: [{ Id: 900, ContactAddressId: 900, Address1: '36 S 18th St', City: 'Philadelphia', StateProvince: 'PA', PostalCode: '19103' }] }),
+    }, log),
   });
-  const cfg = { growthzone: { includeStatusIds: [2], pageSize: 100 } };
-  const { members } = await syncMembers(gz, cfg);
+  const cfg = { growthzone: { includeStatusIds: [2], pageSize: 2 } };
+  const { members, skipped } = await syncMembers(gz, cfg);
   assert.equal(members.length, 1);
+  assert.deepEqual(skipped, { status: 1, individual: 1 });
+  assert.equal(log.filter((l) => l.path.endsWith('/memberships/all')).length, 2); // two $top=2 pages
   const m = members[0];
   assert.equal(m.company, 'Test Builders, Inc.');
   assert.equal(m.category, 'Active');
   assert.equal(m.tier, 'Over $100 Million');
   assert.equal(m.street, '36 S 18th St');
+  assert.equal(m.phone, '215-555-0100');
   assert.equal(m.website, 'https://www.example.com');
   assert.equal(m.memberSince, '1938-01-02');
   assert.equal(m.contactName, 'Pat Doe');
+  assert.equal(m.contactTitle, 'President');
 });
 
 test('build escapes member text so it cannot break out of the data script', async () => {

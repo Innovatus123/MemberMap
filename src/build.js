@@ -113,8 +113,12 @@ export async function build({ cfg, geo, now = new Date(), cdn = false, wrap = fa
   const sourceNote = geo.source === 'growthzone'
     ? `Source: GrowthZone, synced ${asOf}.`
     : `Source: GrowthZone exports saved to SharePoint (2026 Membership Directory mailing list, Sep 3 2026; contacts report, May 25 2026).`;
-  const banner = `<b>DRAFT - internal only.</b> ${sourceNote} ` +
-    (approx ? `${approx} of ${members.length} pins are placed at the ZIP-code centre until street-level geocoding runs on the live GrowthZone sync. ` : '') +
+  const live = geo.source === 'growthzone';
+  const street = members.filter((m) => m.precision === 'street').length;
+  const placement = !approx ? ''
+    : live ? `${street} of ${members.length} pins are at the street address; ${approx} are approximate (ZIP or city centre) and are on the data cleanup list. `
+      : `${approx} of ${members.length} pins are placed at the ZIP-code centre until street-level geocoding runs on the live GrowthZone sync. `;
+  const banner = `<b>${live ? 'Internal only.' : 'DRAFT - internal only.'}</b> ${sourceNote} ${placement}` +
     `Dues tier reflects member-reported revenue - do not share outside GBCA.`;
 
   const brand = cfg.brand;

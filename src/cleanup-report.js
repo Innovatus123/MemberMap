@@ -7,6 +7,7 @@ const ACTIONS = [
   [/PO box/, 'Get the physical street address from the member and add it in GrowthZone as a Physical address.'],
   [/No address/, 'Add the physical street address in GrowthZone.'],
   [/Could not locate/, 'Correct the address in GrowthZone (city/ZIP look wrong).'],
+  [/Street address not matched/, 'Check the street line in GrowthZone: street number first, suite/building names in line 2, no route shorthand.'],
   [/ZIP\/state mismatch/, 'Correct the ZIP code or state in GrowthZone.'],
   [/membership type unknown/, 'Confirm membership type in GrowthZone (joined after May 2026?).'],
   [/not on Sep 2026 mailing list/, 'Confirm status: if still a member, add a mailing/physical address; if dropped, no action.'],

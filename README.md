@@ -31,12 +31,15 @@ Census service), `report`, `build`.
 ## Outputs
 
 - `dist/gbca-member-map.html`: the self-contained map (open it in Chrome or Edge)
-- `reports/data-cleanup.csv`: the worklist for Membership (PO boxes, missing addresses, type gaps)
+- `reports/data-cleanup.csv`: the worklist for Membership (PO boxes, missing addresses, streets the
+  Census geocoder could not match, type gaps)
 
 ## How it works
 
-1. **Source.** `src/gz/sync.js` pulls active member organizations, membership types, addresses
-   and websites from the GrowthZone API (`Authorization: ApiKey …`, paged, throttled, with retry).
+1. **Source.** `src/gz/sync.js` pulls active member organizations, membership types, addresses,
+   phones, websites and primary contacts from the GrowthZone API (`Authorization: ApiKey …`,
+   paged, throttled, with retry). The confirmed field map is in
+   [docs/gz-field-map.md](docs/gz-field-map.md).
 2. **Geocode.** `src/geocode.js` uses the U.S. Census batch geocoder for street-level points,
    falls back to ZIP or city centroids if that service is unreachable, and assigns each member
    a county and region by point-in-polygon against Census county boundaries. Results are cached

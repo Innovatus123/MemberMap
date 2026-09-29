@@ -22,6 +22,7 @@ const countiesTopo = require('us-atlas/counties-10m.json');
 
 const CENSUS_URL = 'https://geocoding.geo.census.gov/geocoder/geographies/addressbatch';
 const CENSUS_BATCH = 9000;
+const CENSUS_ATTEMPTS = 3;
 
 export const addressKey = (m) =>
   crypto.createHash('sha1').update([m.street, m.city, m.state, m.zip].join('|').toLowerCase()).digest('hex').slice(0, 16);
@@ -54,7 +55,7 @@ export function approximate(m) {
 }
 
 /** Street-level batch geocode via the Census Bureau. Returns Map(id -> {lat,lng}) or null if unreachable. */
-export async function censusBatch(rows, { fetchImpl = fetch } = {}) {
+export async function censusBatch(rows, { fetchImpl = fetch, retryDelayMs = 5000 } = {}) {
   const out = new Map();
   for (let i = 0; i < rows.length; i += CENSUS_BATCH) {
     const chunk = rows.slice(i, i + CENSUS_BATCH);
@@ -63,17 +64,23 @@ export async function censusBatch(rows, { fetchImpl = fetch } = {}) {
     form.append('addressFile', new Blob([csv], { type: 'text/csv' }), 'addresses.csv');
     form.append('benchmark', 'Public_AR_Current');
     form.append('vintage', 'Current_Current');
-    let text;
-    try {
-      const res = await fetchImpl(CENSUS_URL, { method: 'POST', body: form, signal: AbortSignal.timeout(120_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      text = await res.text();
-    } catch (err) {
-      console.warn(`geocode: Census geocoder unavailable (${err.message}); using ZIP/city centroids`);
-      return null;
-    }
     // id, input, Match|No_Match|Tie, Exact|Non_Exact, matched address, "lon,lat", tiger id, side, state, county, tract, block
-    for (const cols of parseCsv(text)) {
+    // The service sometimes answers 200 with no result rows; treat that like an outage and retry.
+    let results;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const res = await fetchImpl(CENSUS_URL, { method: 'POST', body: form, signal: AbortSignal.timeout(120_000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        results = parseCsv(await res.text()).filter((cols) => /^(Match|No_Match|Tie)$/.test(cols[2]));
+        if (!results.length) throw new Error('response had no result rows');
+        break;
+      } catch (err) {
+        if (attempt < CENSUS_ATTEMPTS) { await new Promise((r) => setTimeout(r, retryDelayMs * attempt)); continue; }
+        console.warn(`geocode: Census geocoder unavailable (${err.message}); using ZIP/city centroids`);
+        return null;
+      }
+    }
+    for (const cols of results) {
       if (cols[2] !== 'Match' || !cols[5]) continue;
       const [lng, lat] = cols[5].split(',').map(Number);
       if (Number.isFinite(lat) && Number.isFinite(lng)) out.set(cols[0], { lat, lng, precision: 'street', matched: cols[4] });
@@ -87,7 +94,7 @@ export async function geocodeMembers(members, { cache = {}, offline = false, fet
   const todo = members.filter((m) => m.street && !m.poBox && !cache[addressKey(m)]?.precision?.startsWith('street'));
   let census = null;
   if (!offline && todo.length) {
-    census = await censusBatch(todo.map((m) => ({ id: addressKey(m), ...m })), { fetchImpl });
+    census = await censusBatch(todo.map((m) => ({ ...m, id: addressKey(m) })), { fetchImpl });
   }
 
   const issues = [];
@@ -113,6 +120,9 @@ export async function geocodeMembers(members, { cache = {}, offline = false, fet
     if (!m.street && !m.city) issues.push({ company: m.company, issue: 'No address on file', detail: '' });
     else if (m.poBox) issues.push({ company: m.company, issue: 'PO box only - needs a street address', detail: `${m.street}, ${m.city} ${m.state} ${m.zip}` });
     if (!geo && (m.street || m.city)) issues.push({ company: m.company, issue: 'Could not locate address', detail: `${m.street}, ${m.city} ${m.state} ${m.zip}` });
+    if (census && geo && geo.precision !== 'street' && m.street && !m.poBox) {
+      issues.push({ company: m.company, issue: 'Street address not matched - placed at ZIP/city center', detail: `${m.street}, ${m.city} ${m.state} ${m.zip}` });
+    }
     if (geo?.note) issues.push({ company: m.company, issue: 'ZIP/state mismatch - placed at city centroid', detail: `${geo.note}; ${m.street}, ${m.city} ${m.state}` });
     return rec;
   });

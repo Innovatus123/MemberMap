@@ -48,9 +48,11 @@
 
   // ---------- map ----------
   var map = L.map('map', { zoomControl: true, preferCanvas: true }).setView(CFG.mapCenter, CFG.mapZoom);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19, subdomains: 'abcd',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  // CARTO's basemaps now need an API key (every tile reads "API KEY REQUIRED"), so use OSM's
+  // standard tiles, which are fine at internal-staff volume under OSM's tile usage policy.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 
   L.geoJSON(D.states, { interactive: false, style: { color: '#2D2D2D', weight: 1.6, fill: false, opacity: 0.7 } }).addTo(map);

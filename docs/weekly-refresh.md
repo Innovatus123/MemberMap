@@ -24,11 +24,11 @@ Microsoft Graph with `scripts/onedrive-publish.sh`.
 1. **Code.** Work in a checkout of `innovatus123/membermap` on branch `ccr-b36ec192-n6mlh5`.
 2. **Network.** `curl` must reach `generalbuildingcontractorsassociationagc.growthzoneapp.com`
    and `geocoding.geo.census.gov`. If either is blocked, stop and report it.
-3. **Key.** Use `GZ_API_KEY` from the environment if it is set. Otherwise read it from the Outlook
-   email "FW: [GrowthZone] Support Ticket 1580422 Confirmation: GZ API Access for General Building
-   Contractors Association has been updated" (Apr 10, 2026). Write `.env` with
-   `GZ_BASE_URL=https://generalbuildingcontractorsassociationagc.growthzoneapp.com/api` and the key,
-   then `chmod 600 .env`. Never print, log or commit the key.
+3. **Key.** Download Box file `2499294364680` ("Growthzone API.pdf" in
+   `20_GBCA/80_Automations/00_Instructions`) to a scratch folder with `get_download_url` plus `curl`,
+   then run `scripts/gz-key-from-pdf.sh <pdf>`. It writes `.env` (chmod 600) and deletes the PDF.
+   Fall back to the Outlook email "FW: [GrowthZone] Support Ticket 1580422 ..." (Apr 10, 2026) only
+   if the PDF is missing. Never print, log or commit the key.
 4. **Build.** `npm install && npm test && npm run all`.
 5. **Verify.** Trust the proxy CA for Chromium if the container has one:
    `mkdir -p ~/.pki/nssdb && certutil -d sql:$HOME/.pki/nssdb -N --empty-password; certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n agent-proxy -i /root/.ccr/agent-proxy-ca.crt`

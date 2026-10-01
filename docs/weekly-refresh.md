@@ -10,13 +10,14 @@ the "GBCA Applications" environment. It always builds from the live GrowthZone A
 |---|---|---|
 | Folder id | `422232673476` | drive `b!o1yXh0en1U-d6ZF749F0wwUWKHW40rhDjLbdywQLJDNIQuGMQ1oFS6HClQF7D4IX`, item `01LIGXNCHVNYROTXRIJ5FIZHQD6JIU7QWB` |
 | Archived folder id | `423257843094` | `01LIGXNCDSG6OKXMILC5B2FZPBU4P37U4J` |
-| `GBCA Member Map.html` | file `2495160066391` (new version each week) | Written by the Power Automate flow "GBCA Member Map: Box to OneDrive" (Sunday 2:00 AM) |
-| `Member Map - Data Cleanup List.csv` | file `2493452932646` | Uploaded by the Routine (company-level data only) |
+| `GBCA Member Map.html` | file `2495160066391` (new version each week) | `scripts/onedrive-publish.sh` (Microsoft Graph, from disk) |
+| `Member Map - Data Cleanup List.csv` | file `2493452932646` | `scripts/onedrive-publish.sh`, or the Microsoft 365 connector (company-level data only) |
 | `READ ME - GBCA Member Map.txt` | file `2493457458677` | - |
 
 Never paste the map HTML or member data into a tool call's text. A safety check blocks retyping
-member contact details. Box uploads go straight from disk (`get_upload_url` plus `curl`). The map
-reaches OneDrive through the Power Automate flow, which copies Box to OneDrive in the cloud.
+member contact details, and the Microsoft 365 connector only accepts inline content. Every map
+upload goes straight from disk: Box through `get_upload_url` plus `curl`, OneDrive through
+Microsoft Graph with `scripts/onedrive-publish.sh`.
 
 ## Steps
 
@@ -47,15 +48,13 @@ reaches OneDrive through the Power Automate flow, which copies Box to OneDrive i
    - Rewrite the read-me (download the current one first) with this run's date, counts and
      "changes since last build", then upload it as a new version of `2493457458677`.
 9. **OneDrive.**
-   - Archive: move any map `.html` in 01_Member_Map (for example `GBCA Member Map.html`, or a
-     legacy dated name) into Archived, renamed `GBCA Member Map - <YYYY-MM-DD>.html` using its
-     build date. If the name is taken, add a suffix. The Power Automate flow writes the new
-     `GBCA Member Map.html` early Sunday.
-   - Upload `reports/data-cleanup.csv` with `sharepoint_upload_file` as
-     `Member Map - Data Cleanup List.csv`, `conflictBehavior` "replace", `expectedBytes` = its
-     byte size.
-   - Check: at the start of each run, if last week's archive step ran but 01_Member_Map has no
-     `GBCA Member Map.html`, the flow failed. Say so in the report.
+   - If `MS_TENANT_ID`, `MS_CLIENT_ID` and `MS_CLIENT_SECRET` are set, run
+     `scripts/onedrive-publish.sh`. It moves the current map into Archived (named with its date),
+     uploads `GBCA Member Map.html` and the cleanup list from disk, and checks the byte counts.
+   - If they are not set, do not touch the OneDrive map. Upload only `reports/data-cleanup.csv` with
+     `sharepoint_upload_file` as `Member Map - Data Cleanup List.csv` (`conflictBehavior` "replace",
+     `expectedBytes` = its byte size), and report that the OneDrive map is waiting on the Graph
+     credential.
 10. **Git.** Commit and push only code or docs changes, never data, reports, builds or `.env`.
 11. **Report.**
     - Member counts by type and region, and street-level versus approximate placement.
@@ -64,15 +63,17 @@ reaches OneDrive through the Power Automate flow, which copies Box to OneDrive i
     - Box link: https://app.box.com/file/2495160066391
     - Anything that failed or was skipped.
 
-## Power Automate flow (one-time setup, runs in Microsoft's cloud)
+## OneDrive credential (one-time, Microsoft 365 admin)
 
-"GBCA Member Map: Box to OneDrive"
+1. In Microsoft Entra admin center, go to App registrations, then New registration. Name it
+   "GBCA Member Map publisher", single tenant, with no redirect URI.
+2. Under API permissions, add Microsoft Graph, Application permissions, `Files.ReadWrite.All`.
+   Then select Grant admin consent.
+3. Under Certificates & secrets, add a new client secret (24 months). Copy its Value.
+4. In the "GBCA Applications" cloud environment settings, add the environment variables
+   `MS_TENANT_ID` (Directory (tenant) ID), `MS_CLIENT_ID` (Application (client) ID) and
+   `MS_CLIENT_SECRET` (the secret Value).
 
-1. **Trigger:** Recurrence, weekly, Sunday 2:00 AM, time zone Eastern.
-2. **Box, Get file content using id:** File Id `2495160066391`.
-3. **OneDrive for Business, Create file:**
-   - Folder Path: `/0 - GBCA SharePoint/Dashboards/Components/01_Member_Map`
-   - File Name: `GBCA Member Map.html`
-   - File Content: the Box output.
-
-The Routine moves last week's map into Archived first, so Create file never collides with it.
+`Files.ReadWrite.All` as an application permission reaches every user's files in the tenant. For a
+tighter grant, IT can use `Sites.Selected` and give the app write access to the user's OneDrive
+site only. The script works the same either way.

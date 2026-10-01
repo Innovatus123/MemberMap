@@ -136,7 +136,7 @@
     return '<div class="pop"><h3>' + esc(m.company) + '</h3>' + chipsHtml(m) +
       '<div class="addr">' + esc(addressLine(m)) + '</div>' +
       (m.contactName ? '<div>' + esc(m.contactName) + '</div>' : '') +
-      precisionNote(m) + '<span class="more" role="button" tabindex="0">Full record \u203A</span></div>';
+      precisionNote(m) + '<span class="more" role="button" tabindex="0">Full record &rsaquo;</span></div>';
   }
 
   // ---------- detail ----------
@@ -225,7 +225,7 @@
     if (!state.q) { results.hidden = true; return; }
     var hits = MEMBERS.filter(function (m) { return matches(m); }).slice(0, 12);
     results.innerHTML = hits.length ? hits.map(function (m) {
-      return '<button data-id="' + esc(m.id) + '">' + esc(m.company) + '<div class="rc">' + esc([m.category, m.city, m.state].filter(Boolean).join(' \u00B7 ')) + '</div></button>';
+      return '<button data-id="' + esc(m.id) + '">' + esc(m.company) + '<div class="rc">' + [m.category, m.city, m.state].filter(Boolean).map(esc).join(' &middot; ') + '</div></button>';
     }).join('') : '<div class="none">No members match.</div>';
     results.hidden = false;
   }
@@ -331,7 +331,7 @@
     var box = $('active-filters');
     if (!state.county) { box.innerHTML = ''; return; }
     var f = D.counties.features.find(function (x) { return x.id === state.county; });
-    box.innerHTML = '<div class="active-filter">County: <b>' + esc(f ? f.properties.name + ', ' + f.properties.st : state.county) + '</b><button aria-label="Clear county filter">\u00D7</button></div>';
+    box.innerHTML = '<div class="active-filter">County: <b>' + esc(f ? f.properties.name + ', ' + f.properties.st : state.county) + '</b><button aria-label="Clear county filter">&times;</button></div>';
     box.querySelector('button').addEventListener('click', function () { setCounty(''); });
   }
 

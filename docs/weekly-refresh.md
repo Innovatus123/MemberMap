@@ -47,14 +47,24 @@ Microsoft Graph with `scripts/onedrive-publish.sh`.
    - Upload `reports/data-cleanup.csv` as a new version of `2493452932646`.
    - Rewrite the read-me (download the current one first) with this run's date, counts and
      "changes since last build", then upload it as a new version of `2493457458677`.
-9. **OneDrive.**
-   - If `MS_TENANT_ID`, `MS_CLIENT_ID` and `MS_CLIENT_SECRET` are set, run
-     `scripts/onedrive-publish.sh`. It moves the current map into Archived (named with its date),
-     uploads `GBCA Member Map.html` and the cleanup list from disk, and checks the byte counts.
-   - If they are not set, do not touch the OneDrive map. Upload only `reports/data-cleanup.csv` with
-     `sharepoint_upload_file` as `Member Map - Data Cleanup List.csv` (`conflictBehavior` "replace",
-     `expectedBytes` = its byte size), and report that the OneDrive map is waiting on the Graph
-     credential.
+9. **OneDrive.** The Microsoft 365 connector only accepts typed content, so OneDrive gets the split
+   build: a small page plus 13 data files, each small enough for one upload.
+   - Run `node src/build.js --onedrive`, which writes `dist/onedrive/`.
+   - Check that no file contains a `\uXXXX` escape (`grep -rc '\\u[0-9A-Fa-f]\{4\}' dist/onedrive`
+     must report 0 for every file). The connector rewrites these escapes, so a file containing one
+     never matches its byte count.
+   - Archive: move the current `GBCA Member Map.html` in 01_Member_Map into Archived
+     (`01LIGXNCDSG6OKXMILC5B2FZPBU4P37U4J`), renamed `GBCA Member Map - <YYYY-MM-DD>.html` with its
+     build date.
+   - Upload each file in `dist/onedrive/GBCA Member Map files/` into the folder
+     `GBCA Member Map files` (`01LIGXNCASF2A3NWABFJHYRPXEVFMX5LU3`) with `sharepoint_upload_file`,
+     `conflictBehavior` "replace", `expectedBytes` = its byte size. Then upload
+     `dist/onedrive/GBCA Member Map.html` into 01_Member_Map the same way.
+   - Upload `reports/data-cleanup.csv` as `Member Map - Data Cleanup List.csv` the same way.
+   - The page checks every data file when it opens, and shows a red warning if any file is missing
+     or altered.
+   - `scripts/onedrive-publish.sh` does the same from disk through Microsoft Graph, if
+     `MS_TENANT_ID`, `MS_CLIENT_ID` and `MS_CLIENT_SECRET` are ever set.
 10. **Git.** Commit and push only code or docs changes, never data, reports, builds or `.env`.
 11. **Report.**
     - Member counts by type and region, and street-level versus approximate placement.

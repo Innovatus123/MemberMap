@@ -91,7 +91,70 @@ function columnar(members) {
   return { cols, empty, rows: members.map((m) => cols.map((c) => (isBlank(m[c]) ? 0 : m[c]))) };
 }
 
-export async function build({ cfg, geo, now = new Date(), cdn = false, wrap = false }) {
+/** FNV-1a over UTF-16 code units; the page runs the same function to check each data file. */
+export function fnv1a(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h;
+}
+
+/** Split an array into chunks of roughly `bytes` of JSON each. */
+function chunk(list, bytes) {
+  const out = [[]];
+  let size = 0;
+  for (const item of list) {
+    const n = JSON.stringify(item).length + 1;
+    if (size + n > bytes && out[out.length - 1].length) { out.push([]); size = 0; }
+    out[out.length - 1].push(item);
+    size += n;
+  }
+  return out;
+}
+
+export const SPLIT_DIR = 'GBCA Member Map files';
+
+/**
+ * Moves member rows, county shapes and the app code out of the page into small script files in
+ * SPLIT_DIR, so each file fits in one Microsoft 365 connector upload. The page checks every file
+ * with fnv1a before it starts and shows a red warning if any file is missing or altered.
+ */
+function splitOut(data, appJs, partBytes) {
+  const parts = [];
+  const expected = [];
+  const add = (name, list) => chunk(list, partBytes).forEach((items, i) => {
+    const key = `${name}-${i + 1}`;
+    expected.push({ key, kind: name, hash: fnv1a(JSON.stringify(items)) });
+    parts.push({ file: `${key}.js`, content: `(window.GBCA_PARTS=window.GBCA_PARTS||{})["${key}"]=\n` +
+      wrapJson(JSON.stringify(items)).replace(/</g, '\\u003c') + ';\n' });
+  });
+  add('members', data.members.rows);
+  add('counties', data.counties.features);
+  data.members.rows = [];
+  data.counties.features = [];
+  parts.push({ file: 'app.js', content: appJs });
+  const src = (f) => `${encodeURIComponent(SPLIT_DIR)}/${f}`;
+  const merge = `<script>(function () {
+  var P = window.GBCA_PARTS || {}, E = ${JSON.stringify(expected)};
+  var el = document.getElementById('app-data'), d = JSON.parse(el.textContent), bad = [];
+  function h(s) { var x = 2166136261; for (var i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return x; }
+  E.forEach(function (e) {
+    var v = P[e.key];
+    if (!v || h(JSON.stringify(v)) !== e.hash) { bad.push(e.key); return; }
+    if (e.kind === 'members') d.members.rows = d.members.rows.concat(v); else d.counties.features = d.counties.features.concat(v);
+  });
+  el.textContent = JSON.stringify(d);
+  if (bad.length) {
+    console.error('GBCA Member Map: data files missing or altered: ' + bad.join(', '));
+    var b = document.querySelector('.draft');
+    if (b) b.innerHTML = '<b style="color:#CE0E2D">Warning: this copy of the map is incomplete (' + bad.length +
+      ' data file(s) missing or altered). Use the copy in Box.</b> ' + b.innerHTML;
+  }
+})();</script>`;
+  const tags = parts.filter((x) => x.file !== 'app.js').map((x) => `<script src="${src(x.file)}"></script>`).join('\n');
+  return { parts, before: `${tags}\n${merge}`, appTag: `<script src="${src('app.js')}"></script>` };
+}
+
+export async function build({ cfg, geo, now = new Date(), cdn = false, wrap = false, split = false, partBytes = 14000 }) {
   const members = geo.members.map((m) => publishable(m, cfg.publish)).sort((a, b) => a.company.localeCompare(b.company));
   const tiers = [...new Set(members.map((m) => m.tier).filter(Boolean))].sort((a, b) => tierRank(a) - tierRank(b));
   const { counties, states } = boundaries(cfg.footprintStates);
@@ -132,6 +195,8 @@ export async function build({ cfg, geo, now = new Date(), cdn = false, wrap = fa
   const leafletJs = cdn ? js.map(cdnTag).join('\n') : `<script>${js.map((c) => read(mod(`${c[0]}/${c[2]}`))).join('\n;\n')}</script>`;
   const appJs = wrap ? read(p('template/app.js')) : (await minify(read(p('template/app.js')), { compress: true, mangle: true })).code;
 
+  const sp = split ? splitOut(data, appJs, partBytes) : null;
+
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const tokens = {
     __TITLE__: esc(cfg.mapTitle),
@@ -145,17 +210,29 @@ export async function build({ cfg, geo, now = new Date(), cdn = false, wrap = fa
     __STYLES__: wrap ? styles : styles.replace(/\s*\n\s*/g, '').replace(/\/\*.*?\*\//g, ''),
     // JSON inside <script>: escape "<" so member text can never close the tag
     __DATA__: (wrap ? wrapJson(JSON.stringify(data)) : JSON.stringify(data)).replace(/</g, '\\u003c'),
-    __LEAFLET_JS__: leafletJs,
-    __APP_JS__: appJs,
+    __LEAFLET_JS__: sp ? `${leafletJs}\n${sp.before}` : leafletJs,
+    __APP_JS__: sp ? '' : appJs,
   };
   let html = read(p('template/map.html'));
   for (const [k, v] of Object.entries(tokens)) html = html.split(k).join(v);
-  return html;
+  if (sp) html = html.replace('<script></script>', sp.appTag);
+  return sp ? { html, parts: sp.parts } : html;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const cfg = loadConfig();
   const geo = readJson(p('data/members.geo.json'));
+  // --onedrive: page plus small data files, each small enough for one Microsoft 365 connector upload
+  if (process.argv.includes('--onedrive')) {
+    const { html, parts } = await build({ cfg, geo, cdn: true, wrap: true, split: true });
+    const dir = p('dist/onedrive');
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(`${dir}/${SPLIT_DIR}`, { recursive: true });
+    fs.writeFileSync(`${dir}/GBCA Member Map.html`, html);
+    for (const x of parts) fs.writeFileSync(`${dir}/${SPLIT_DIR}/${x.file}`, x.content);
+    console.log(`build: ${dir} (page ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB + ${parts.length} files, ${geo.members.length} members)`);
+    process.exit(0);
+  }
   // --sharepoint: map library from the CDN and short lines, for upload through the Microsoft 365 connector
   const sharepoint = process.argv.includes('--sharepoint');
   const cdn = sharepoint || process.argv.includes('--cdn');

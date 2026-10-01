@@ -22,6 +22,7 @@ cp .env.example .env      # then add the GrowthZone API key; never commit .env
 | `npm run discover` | One-time check: records the field names each GrowthZone endpoint returns (no member data) to `reports/gz-discovery.json` |
 | `npm run all` | Live pipeline: GrowthZone sync → geocode → cleanup report → build |
 | `npm run draft` | Interim pipeline from the SharePoint exports in `data/seed/` (used for the first draft) |
+| `node src/build.js --onedrive` | OneDrive variant in `dist/onedrive/`: the page plus small data files (each fits one Microsoft 365 connector upload); the page checks every file and warns if one is missing or altered |
 | `npm run build:sharepoint` | Build variant for upload through the Microsoft 365 connector (map library from CDN, short lines) |
 | `npm test` | Unit tests |
 | `node scripts/verify-map.mjs` | Headless browser check of the built map (Playwright, no console errors) |

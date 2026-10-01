@@ -24,9 +24,16 @@ cp .env.example .env      # then add the GrowthZone API key; never commit .env
 | `npm run draft` | Interim pipeline from the SharePoint exports in `data/seed/` (used for the first draft) |
 | `npm run build:sharepoint` | Build variant for upload through the Microsoft 365 connector (map library from CDN, short lines) |
 | `npm test` | Unit tests |
+| `node scripts/verify-map.mjs` | Headless browser check of the built map (Playwright, no console errors) |
+| `node scripts/diff-maps.mjs <old.html> <new.html>` | Members added, dropped or changed between two builds |
 
 Each step can also be run alone: `sync`, `seed`, `geocode` (add `-- --offline` to skip the
 Census service), `report`, `build`.
+
+## Weekly refresh
+
+A cloud Routine rebuilds the map from live GrowthZone every Saturday night and delivers it to Box
+and OneDrive, archiving the previous map. See [docs/weekly-refresh.md](docs/weekly-refresh.md).
 
 ## Outputs
 

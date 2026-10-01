@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Microsoft_365__sharepoint_upload_file",
+      "mcp__Microsoft_365__sharepoint_move_item"
+    ]
+  }
+}
